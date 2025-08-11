@@ -1,0 +1,14 @@
+server:
+  listen_addr: ":8080"
+
+logging:
+  level: "info"
+  output: "file"
+  file: "./logs/dag.log"
+
+database:
+  path: "./data"
+
+dag:
+  max_tips: 5
+  default_weight: 1.0
