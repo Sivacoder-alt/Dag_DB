@@ -202,7 +202,6 @@ func (d *DAG) GetNode(id string) (*store.Node, error) {
 }
 
 func (d *DAG) IsTip(id string) (bool, error) {
-	// Iterate through all nodes to check if any node has the given ID as a parent
 	iter := d.store.Iterator()
 	defer iter.Release()
 
@@ -213,20 +212,17 @@ func (d *DAG) IsTip(id string) (bool, error) {
 		}
 		for _, parent := range node.Parents {
 			if parent == id {
-				// If the node is found as a parent, it is not a tip
 				return false, nil
 			}
 		}
 	}
 
-	// If no node has the given ID as a parent, it is a tip
 	return true, nil
 }
 
 func (d *DAG) DeleteNode(id string) error {
 	d.logger.Infof("Deleting node: %s", id)
 
-	// Check if node exists
 	node, err := d.store.GetNode(id)
 	if err != nil {
 		return err
@@ -235,7 +231,6 @@ func (d *DAG) DeleteNode(id string) error {
 		return fmt.Errorf("node with ID %s not found", id)
 	}
 
-	// Check if node has children (other nodes with this as parent)
 	iter := d.store.Iterator()
 	defer iter.Release()
 	for iter.Next() {
@@ -250,12 +245,10 @@ func (d *DAG) DeleteNode(id string) error {
 		}
 	}
 
-	// Delete node from store
 	if err := d.store.DeleteNode(id); err != nil {
 		return err
 	}
 
-	// Subtract this node’s weight from parents’ cumulative weight recursively
 	for _, parentID := range node.Parents {
 		if err := d.decrementParentWeight(parentID, node.Weight); err != nil {
 			d.logger.Errorf("Failed to decrement weight for parent %s: %v", parentID, err)
