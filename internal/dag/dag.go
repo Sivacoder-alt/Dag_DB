@@ -13,10 +13,14 @@ import (
 type DAG struct {
 	store  *store.Store
 	logger *logrus.Logger
+	maxParents int
 }
 
-func New(store *store.Store, logger *logrus.Logger) *DAG {
-	return &DAG{store: store, logger: logger}
+func New(store *store.Store, logger *logrus.Logger, maxParents int) *DAG {
+	if maxParents <= 0 {
+		maxParents = 2
+	}
+	return &DAG{store: store, logger: logger,maxParents: maxParents}
 }
 
 func (d *DAG) AddNode(node *store.Node) error {
@@ -36,11 +40,15 @@ func (d *DAG) AddNode(node *store.Node) error {
 	// Auto-select parents via MCMC if not provided
 	if len(node.Parents) == 0 {
 		selectedTips, err := d.SelectTipsMCMC(2)
-		if err == nil {
+		if err != nil {
+			d.logger.Warnf("Failed to select tips via MCMC: %v", err)
+			// Allow adding genesis nodes (no parents) if DAG is empty
+			if err.Error() != "no nodes in DAG" {
+				return fmt.Errorf("failed to select parents: %v", err)
+			}
+		} else {
 			node.Parents = selectedTips
 			d.logger.Infof("Auto-selected parents (MCMC) for %s: %v", node.ID, node.Parents)
-		} else {
-			d.logger.Warnf("No tips available for MCMC selection")
 		}
 	}
 
@@ -99,16 +107,28 @@ func (d *DAG) incrementParentWeight(parentID string, weight float64) error {
 }
 
 func (d *DAG) SelectTipsMCMC(maxTips int) ([]string, error) {
-
+	if maxTips <= 0 {
+		maxTips = d.maxParents
+	}
 	tips := make(map[string]struct{})
-	for len(tips) < maxTips {
+	maxAttempts := 10 * maxTips 
+
+	nodeCount := 0
+	iter := d.store.Iterator()
+	for iter.Next() {
+		nodeCount++
+	}
+	iter.Release()
+	maxWalkSteps := max(10, nodeCount*2) 
+
+	for len(tips) < maxTips && maxAttempts > 0 {
 		startNode, err := d.getRandomNode()
 		if err != nil {
-			return nil, err
+			return nil, err 
 		}
 
 		current := startNode
-		for {
+		for steps := 0; steps < maxWalkSteps; steps++ {
 			isTip, err := d.IsTip(current.ID)
 			if err != nil {
 				return nil, err
@@ -122,7 +142,6 @@ func (d *DAG) SelectTipsMCMC(maxTips int) ([]string, error) {
 			if err != nil {
 				return nil, err
 			}
-
 			if len(children) == 0 {
 				tips[current.ID] = struct{}{}
 				break
@@ -130,6 +149,12 @@ func (d *DAG) SelectTipsMCMC(maxTips int) ([]string, error) {
 
 			current = weightedRandomChoice(children)
 		}
+		maxAttempts--
+	}
+
+	if len(tips) == 0 {
+		d.logger.Warnf("No tips found after %d attempts", maxAttempts)
+		return nil, fmt.Errorf("no tips available")
 	}
 
 	result := make([]string, 0, len(tips))
@@ -139,23 +164,39 @@ func (d *DAG) SelectTipsMCMC(maxTips int) ([]string, error) {
 	return result, nil
 }
 
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (d *DAG) getRandomNode() (*store.Node, error) {
 	iter := d.store.Iterator()
 	defer iter.Release()
 
-	allNodes := []*store.Node{}
+	count := 0
 	for iter.Next() {
-		var node store.Node
-		if err := json.Unmarshal(iter.Value(), &node); err != nil {
-			return nil, err
-		}
-		allNodes = append(allNodes, &node)
+		count++
 	}
-	if len(allNodes) == 0 {
+	if count == 0 {
 		return nil, fmt.Errorf("no nodes in DAG")
 	}
 
-	return allNodes[rand.Intn(len(allNodes))], nil
+	target := rand.Intn(count)
+	iter = d.store.Iterator() 
+	defer iter.Release()
+
+	for i := 0; i <= target && iter.Next(); i++ {
+		if i == target {
+			var node store.Node
+			if err := json.Unmarshal(iter.Value(), &node); err != nil {
+				return nil, err
+			}
+			return &node, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to select random node")
 }
 
 func (d *DAG) getChildren(parentID string) ([]*store.Node, error) {

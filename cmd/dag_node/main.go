@@ -34,7 +34,7 @@ func main() {
 	}
 	defer st.Close()
 
-	dagManager := dag.New(st, logr)
+	dagManager := dag.New(st, logr,cfg.DAG.MaxParents)
 	handler := http.NewHandler(dagManager)
 
 	r := mux.NewRouter()
