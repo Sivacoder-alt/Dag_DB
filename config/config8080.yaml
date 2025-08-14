@@ -1,0 +1,18 @@
+server:
+  listen_addr: ":8080"
+
+logging:
+  level: "info"
+  output: "file"
+  file: "D:/Sivaram/Dag_DB/logs/dag8080.log"
+
+leveldb:
+  path: "D:/Sivaram/Dag_DB/data8080"
+
+dag:
+  max_parents: 5
+  default_weight: 1.0
+  peers:
+    - "http://localhost:8081"
+    - "http://localhost:8082"
+  sync_interval: 10
