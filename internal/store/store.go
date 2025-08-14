@@ -60,7 +60,6 @@ func (s *Store) Iterator() iterator.Iterator {
 	return s.db.NewIterator(nil, nil)
 }
 
-
 func (s *Store) DeleteNode(id string) error {
 	return s.db.Delete([]byte(id), nil)
 }

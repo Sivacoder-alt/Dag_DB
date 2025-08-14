@@ -13,33 +13,28 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/sivaram/dag-leveldb/internal/dag"
 	"github.com/sivaram/dag-leveldb/internal/model"
-	"github.com/sivaram/dag-leveldb/internal/store"
+	"github.com/sivaram/dag-leveldb/internal/store" 
 )
 
 func setupTest(t *testing.T) (*Handler, *store.Store, func()) {
-	// Sanitize t.Name() to remove slashes for Windows compatibility
 	safeTestName := strings.ReplaceAll(t.Name(), "/", "_")
 	tmpDir, err := os.MkdirTemp("", "leveldb-test-"+safeTestName)
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 
-	// Initialize store
 	st, err := store.New(tmpDir)
 	if err != nil {
 		t.Fatalf("Failed to initialize store: %v", err)
 	}
 
-	// Initialize logger
 	logger := logrus.New()
 	logger.SetLevel(logrus.InfoLevel)
 	logger.SetOutput(os.Stdout)
 
-	// Initialize DAG and handler with maxParents=5
-	dagManager := dag.New(st, logger, 5)
+	dagManager := dag.New(st, logger, 5, 3)
 	handler := NewHandler(dagManager)
 
-	// Cleanup function
 	cleanup := func() {
 		st.Close()
 		if err := os.RemoveAll(tmpDir); err != nil {
@@ -258,15 +253,15 @@ func TestDeleteNode(t *testing.T) {
 	t.Run("Delete non-existent node", func(t *testing.T) {
 		handler, _, cleanup := setupTest(t)
 		defer cleanup()
-
+	
 		req := httptest.NewRequest("DELETE", "/nodes/nonexistent", nil)
 		req = mux.SetURLVars(req, map[string]string{"id": "nonexistent"})
 		w := httptest.NewRecorder()
-
+	
 		handler.DeleteNode(w, req)
-
-		if w.Code != http.StatusInternalServerError {
-			t.Errorf("Expected status %d, got %d", http.StatusInternalServerError, w.Code)
+	
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected status %d, got %d", http.StatusNotFound, w.Code)
 		}
 		if !bytes.Contains([]byte(w.Body.String()), []byte("node with ID nonexistent not found")) {
 			t.Errorf("Expected error message for non-existent node, got %s", w.Body.String())
@@ -393,6 +388,106 @@ func TestWeightPropagation(t *testing.T) {
 		n1, _ := st.GetNode("n1")
 		if n1.CumulativeWeight != 1.0 {
 			t.Errorf("Expected n1 cumulative weight 1.0 after deleting n2, got %f", n1.CumulativeWeight)
+		}
+	})
+}
+
+func TestGetNodes(t *testing.T) {
+	t.Run("Get all nodes from empty DAG", func(t *testing.T) {
+		handler, _, cleanup := setupTest(t)
+		defer cleanup()
+
+		req := httptest.NewRequest("GET", "/nodes", nil)
+		w := httptest.NewRecorder()
+
+		handler.GetNodes(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var nodes []store.Node
+		if err := json.NewDecoder(w.Body).Decode(&nodes); err != nil {
+			t.Errorf("Failed to decode response: %v", err)
+		}
+		if len(nodes) != 0 {
+			t.Errorf("Expected 0 nodes, got %d", len(nodes))
+		}
+	})
+
+	t.Run("Get all nodes with multiple nodes", func(t *testing.T) {
+		handler, st, cleanup := setupTest(t)
+		defer cleanup()
+
+		nodes := []store.Node{
+			{ID: "node1", Data: "data1", Weight: 1.0, CumulativeWeight: 1.0},
+			{ID: "node2", Data: "data2", Parents: []string{"node1"}, Weight: 2.0, CumulativeWeight: 2.0},
+		}
+		for _, n := range nodes {
+			if err := st.AddNode(&n); err != nil {
+				t.Fatalf("Failed to add node %s: %v", n.ID, err)
+			}
+		}
+
+		req := httptest.NewRequest("GET", "/nodes", nil)
+		w := httptest.NewRecorder()
+
+		handler.GetNodes(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var respNodes []store.Node
+		if err := json.NewDecoder(w.Body).Decode(&respNodes); err != nil {
+			t.Errorf("Failed to decode response: %v", err)
+		}
+		if len(respNodes) != 2 {
+			t.Errorf("Expected 2 nodes, got %d", len(respNodes))
+		}
+
+		for _, n := range nodes {
+			found := false
+			for _, rn := range respNodes {
+				if rn.ID == n.ID && rn.Data == n.Data && rn.Weight == n.Weight && rn.CumulativeWeight == n.CumulativeWeight {
+					found = true
+					if len(rn.Parents) != len(n.Parents) {
+						t.Errorf("Expected parents %+v for node %s, got %+v", n.Parents, n.ID, rn.Parents)
+					}
+					break
+				}
+			}
+			if !found {
+				t.Errorf("Node %s not found in response", n.ID)
+			}
+		}
+	})
+
+	t.Run("Get all nodes with unmarshal error", func(t *testing.T) {
+		handler, st, cleanup := setupTest(t)
+		defer cleanup()
+
+		if err := st.AddNode(&store.Node{ID: "node1", Data: "data1", Weight: 1.0}); err != nil {
+			t.Fatalf("Failed to add node: %v", err)
+		}
+		req := httptest.NewRequest("GET", "/nodes", nil)
+		w := httptest.NewRecorder()
+
+		handler.GetNodes(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var nodes []store.Node
+		if err := json.NewDecoder(w.Body).Decode(&nodes); err != nil {
+			t.Errorf("Failed to decode response: %v", err)
+		}
+		if len(nodes) != 1 {
+			t.Errorf("Expected 1 node, got %d", len(nodes))
+		}
+		if nodes[0].ID != "node1" {
+			t.Errorf("Expected node1, got %s", nodes[0].ID)
 		}
 	})
 }
