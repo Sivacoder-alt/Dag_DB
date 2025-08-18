@@ -19,10 +19,12 @@ type Config struct {
 		File   string `mapstructure:"file"`
 	} `mapstructure:"logging"`
 	DAG struct {
-		MaxParents    int      `mapstructure:"max_parents"`
-		DefaultWeight float64  `mapstructure:"default_weight"`
-		Peers         []string `mapstructure:"peers"`
-		SyncInterval  int      `mapstructure:"sync_interval"`
+		MaxParents           int      `mapstructure:"max_parents"`
+		DefaultWeight        float64  `mapstructure:"default_weight"`
+		Peers                []string `mapstructure:"peers"`
+		SyncInterval         int      `mapstructure:"sync_interval"`
+		CheckpointInterval   int      `mapstructure:"checkpoint_interval"`
+		ConfirmationThreshold float64  `mapstructure:"confirmation_threshold"`
 	} `mapstructure:"dag"`
 }
 
@@ -44,6 +46,12 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	if cfg.DAG.SyncInterval <= 0 {
 		cfg.DAG.SyncInterval = 30
+	}
+	if cfg.DAG.CheckpointInterval <= 0 {
+		cfg.DAG.CheckpointInterval = 300
+	}
+	if cfg.DAG.ConfirmationThreshold <= 0 {
+		cfg.DAG.ConfirmationThreshold = 10.0
 	}
 
 	return &cfg, nil

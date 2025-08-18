@@ -116,7 +116,7 @@ func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 
 	if err := h.dag.DeleteNode(id); err != nil {
-		if strings.Contains(err.Error(), "not found") {
+		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "checkpoint") {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
@@ -130,4 +130,37 @@ func (h *Handler) DeleteNode(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"message": "Node deleted successfully"})
+}
+
+func (h *Handler) CreateCheckpoint(w http.ResponseWriter, r *http.Request) {
+	finalizedNodes, err := h.dag.CreateCheckpoint()
+	if err != nil {
+		http.Error(w, "Failed to create checkpoint: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if finalizedNodes ==nil{
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"message": "No finalized nodes to checkpoint"})
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"message": "Checkpoint created successfully"})
+}
+
+func (h *Handler) GetLatestCheckpoint(w http.ResponseWriter, r *http.Request) {
+	checkpoint, err := h.dag.GetLatestCheckpoint()
+	if err != nil {
+		http.Error(w, "Failed to fetch latest checkpoint: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if checkpoint == nil {
+		http.Error(w, "No checkpoint found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(checkpoint); err != nil {
+		http.Error(w, "Failed to encode checkpoint: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 }
