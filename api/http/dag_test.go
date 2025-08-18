@@ -23,7 +23,7 @@ func setupTest(t *testing.T) (*Handler, *store.Store, func()) {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 
-	st, err := store.New(tmpDir)
+	st, err := store.New(tmpDir,nil)
 	if err != nil {
 		t.Fatalf("Failed to initialize store: %v", err)
 	}
@@ -32,7 +32,7 @@ func setupTest(t *testing.T) (*Handler, *store.Store, func()) {
 	logger.SetLevel(logrus.InfoLevel)
 	logger.SetOutput(os.Stdout)
 
-	dagManager := dag.New(st, logger, 5, 3)
+	dagManager := dag.New(st, logger, 5, 3,300,10)
 	handler := NewHandler(dagManager)
 
 	cleanup := func() {
