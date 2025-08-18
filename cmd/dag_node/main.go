@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"log"
-	server "net/http"
+	httpServer "net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
 	"github.com/sivaram/dag-leveldb/api/http"
 	"github.com/sivaram/dag-leveldb/internal/config"
 	"github.com/sivaram/dag-leveldb/internal/dag"
@@ -29,14 +31,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize logger: %v", err)
 	}
-
-	st, err := store.New(cfg.LevelDB.Path)
+	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
+	logger.SetLevel(logrus.DebugLevel)
+	st, err := store.New("D:/Sivaram/Dag_DB/data8080", logger)
 	if err != nil {
 		log.Fatalf("Failed to initialize store: %v", err)
 	}
 	defer st.Close()
 
-	dagManager := dag.New(st, logr, cfg.DAG.MaxParents, cfg.DAG.DefaultWeight)
+	dagManager := dag.New(st, logr, cfg.DAG.MaxParents, cfg.DAG.DefaultWeight, int64(cfg.DAG.CheckpointInterval), cfg.DAG.ConfirmationThreshold)
 	handler := http.NewHandler(dagManager)
 
 	go func() {
@@ -55,13 +59,19 @@ func main() {
 					}
 				}(peer)
 			}
+			if _,err := dagManager.CreateCheckpoint(); err != nil {
+				logr.Errorf("Failed to create checkpoint: %v", err)
+			}
+			if err := dagManager.PruneBeforeCheckpoint(); err != nil {
+				logr.Errorf("Failed to prune nodes: %v", err)
+			}
 		}
 	}()
 
 	r := mux.NewRouter()
 	routes.RegisterRoutes(r, handler)
 	log.Printf("Server listening on %s", cfg.Server.ListenAddr)
-	if err := server.ListenAndServe(cfg.Server.ListenAddr, r); err != nil {
+	if err := httpServer.ListenAndServe(cfg.Server.ListenAddr, r); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }

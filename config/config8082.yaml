@@ -13,3 +13,5 @@ dag:
     - "http://localhost:8080"
     - "http://localhost:8081"
   sync_interval: 10
+  checkpoint_interval: 300
+  confirmation_threshold: 10.0
